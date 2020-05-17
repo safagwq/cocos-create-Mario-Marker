@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>雪碧图切割工具</title>
+        <style>
+            a {
+                display: block;
+            }
+        </style>
+    </head>
+    <body>
+        <img src="./assets/Texture/map/mario_lv3.png" />
+
+        <br />
+        <canvas style="border: 1px solid #888;" height="300" width="300"></canvas>
+
+        <div id="app">
+            <br :data-set="__draw" />
+            高 : <input v-model="h" type="number" /><br />
+            宽 : <input v-model="w" type="number" /><br />
+            x : <input v-model="x" type="number" /><br />
+            y : <input v-model="y" type="number" /><br />
+            X增量 : <input v-model="addX" type="number" /><br />
+            Y增量 : <input v-model="addY" type="number" /><br />
+
+            <a @click.prevent="downloadAll" href="#">点击下载全部</a>
+
+            <a class="preview" v-for="(download,index) in downloads" :href="download.link" :download="index + '.png'"><img :src="download.preview" />点击下载 {{index}}.png</a>
+        </div>
+
+        <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
+        <script>
+            var canvas = document.querySelector('canvas')
+            var img = document.querySelector('img')
+            var ctx = canvas.getContext('2d')
+
+            var app = null
+            window.onload = () => {
+                app = new Vue({
+                    el: '#app',
+                    data() {
+                        return {
+                            x: 0,
+                            y: 0,
+                            w: 16,
+                            h: 16,
+                            addX: 16,
+                            addY: 0,
+                            downloads: null,
+                        }
+                    },
+                    computed: {
+                        __draw() {
+                            var h = parseInt(this.h)
+                            var w = parseInt(this.w)
+                            var x = parseInt(this.x)
+                            var y = parseInt(this.y)
+
+                            canvas.width = w
+                            canvas.height = h
+
+                            if (this.addX > 0) {
+                                this.downloads = new Array(Math.ceil(img.width / w)).fill(0).map((__, index) => {
+                                    ctx.clearRect(0, 0, canvas.width, canvas.height)
+                                    ctx.drawImage(img, index * w + x, y, w, h, x, y, w, h)
+                                    var png = canvas.toDataURL('png')
+                                    return {
+                                        link: png,
+                                        preview: png,
+                                    }
+                                })
+                            } else if (this.addY > 0) {
+                            }
+
+                            return 0
+                        },
+                    },
+
+                    methods: {
+                        downloadAll() {
+                            document.querySelectorAll('a.preview').forEach((a, index) => {
+                                setTimeout(() => {
+                                    a.click()
+                                }, index * 100)
+                            })
+                        },
+                    },
+                })
+            }
+        </script>
+    </body>
+</html>
