@@ -1,8 +1,9 @@
 import $, { createLayerColor } from './Public/Util'
+import SpriteMap from './SpriteMap'
 
 const { ccclass, property } = cc._decorator
 
-export const frameTime = 1 / 60
+export const frameTime = 1 / 50
 export const gridSize = 16
 
 const marioMapLayerMaps = {
@@ -166,6 +167,27 @@ export class BaseSpriteMap extends cc.Component {
     })
     skewType: number = BaseSpriteMap.skewTypes.None
 
+    @property({
+        tooltip: '可移动',
+    })
+    canMove = false
+    
+    @property({
+        tooltip: 'X轴移动速度',
+        visible() {
+            return this.canMove === true
+        },
+    })
+    speedX = 0
+    
+    @property({
+        tooltip: 'Y轴移动速度',
+        visible() {
+            return this.canMove === true
+        },
+    })
+    speedY = 0
+
 
     get x() {
         return this.node.x
@@ -204,11 +226,14 @@ export default class World extends cc.Component {
 
     players: Player[] = []
     spriteMaps: BaseSpriteMap[] = []
+    canMoveSpriteMaps: BaseSpriteMap[] = []
     camera: PlayerCamera = null
     inCameraPlayers: Player[] = []
 
     paused = false
     pausedFocusPlayer: Player = null
+
+    lastStatus : Map<Player|BaseSpriteMap,{x:number,y:number}> = new Map()
 
     onLoad() {
         // this.initMap()
@@ -257,16 +282,14 @@ export default class World extends cc.Component {
 
     addPlayer(player: Player) {
         player.world = this
-
         this.players.push(player)
-
-        if(this.mainPlayer) {
-            // this.mainPlayer.node.setLocalZOrder(99999)
-        }
     }
 
     addSpriteMap(spriteMap: BaseSpriteMap) {
         this.spriteMaps.push(spriteMap)
+        if(spriteMap.canMove){
+            this.canMoveSpriteMaps.push(spriteMap)
+        }
     }
 
     removePlayer(player: Player) {
@@ -305,6 +328,7 @@ export default class World extends cc.Component {
                 }
             }
         } else {
+            this.moveMapUpdate(this.canMoveSpriteMaps)
             this.worldUpdate(this.players)
         }
 
@@ -366,8 +390,54 @@ export default class World extends cc.Component {
         })
     }
 
+    private moveMapUpdate(maps: BaseSpriteMap[]) {
+    
+        this.canMoveSpriteMaps.forEach((spriteMap)=>{
+            if(spriteMap.canMove && spriteMap.skewType == BaseSpriteMap.skewTypes.None &&  spriteMap.type==BaseSpriteMap.types.Smart || spriteMap.type==BaseSpriteMap.types.Entity ){
+
+                const xPlus = spriteMap.speedX * frameTime
+                const yPlus = spriteMap.speedY * frameTime
+
+                const inUpPlayers : Player[] = []
+                const links :{player:Player , body:Body }[] = []
+
+                this.players.forEach((player)=>{
+                    if(player.isFlyPlayer){
+                        return false
+                    }
+
+                    const y1 = player.y + player.body.y - player.body.height / 2
+                    const x1 = player.x + player.body.x - player.body.width / 2
+                    const x2 = player.x + player.body.x + player.body.width / 2
+
+                    spriteMap.bodys.some((body)=>{
+                        const x3 = spriteMap.x + body.x - body.width / 2
+                        const x4 = spriteMap.x + body.x + body.width / 2
+                        
+                        if(roundEqual(y1, spriteMap.y+body.y+body.height/2) && x3 < x2 && x4>x1){
+                            links.push({ body , player })
+                        }
+                    })
+                })
+
+                spriteMap.x += xPlus
+                spriteMap.y += yPlus
+
+                links.forEach(({player,body})=>{
+                    player.x += xPlus
+                    player.y = spriteMap.y + body.y + body.height/2 + player.body.height / 2 - player.body.y + 0.01
+                })
+            }
+        })
+    }
     private worldUpdate(players: Player[]) {
+
         players.forEach((player) => {
+            // this.lastStatus.set(player, {
+            //     x : player.x,
+            //     y : player.y
+            // })
+
             if (player.isFlyPlayer) {
                 player.x += player.speedX * frameTime
                 player.y += player.speedY * frameTime
@@ -396,16 +466,12 @@ export default class World extends cc.Component {
         })
 
         players.forEach((player) => {
-            
-            
             if(player.isInAir && player.jumpCount == player.jumpCountMax){
                 player.jumpCount = player.jumpCountMax-1
             }
-
             player.worldUpdate()
         })
     }
-
 
     private getSkewMapIntersectionY(playerX:number,body:Body){
         const spriteMap = body.target as BaseSpriteMap
@@ -454,14 +520,6 @@ export default class World extends cc.Component {
         }
     }
 
-    /**
-     * 计算目标节点的x值 (左下角)
-     * @param player
-     * @param x
-     * @param y
-     * @param width
-     * @param height
-     */
     private updateMapCollision_checkX(player: Player | null, x: number, y: number , xBefore:number , yBefore:number) {
         const {width, height} = player.body
 
@@ -474,6 +532,18 @@ export default class World extends cc.Component {
         const skewEntityRectBodys = entityRectBodys.filter(World.filterSkewBody)
         entityRectBodys = entityRectBodys.filter(World.filterNotSkewBody)
 
+        if (entityRectBodys.length > 0) {
+            let xRectBody = entityRectBodys[0]
+
+            if (player.speedX > 0) {
+                x = xRectBody.target.x + xRectBody.x - xRectBody.width / 2 - player.body.width
+            } else {
+                x = xRectBody.target.x + xRectBody.x + xRectBody.width / 2
+            }
+            player.speedX = 0
+            return {x,y}
+        }
+        
         if(skewEntityRectBodys.length>0){
 
             const beforeSkewMapIntersectionY = this.getSkewMapIntersectionY(xBefore+width/2,skewEntityRectBodys[0])
@@ -505,18 +575,6 @@ export default class World extends cc.Component {
         }
 
 
-        if (entityRectBodys.length > 0) {
-            let xRectBody = entityRectBodys[0]
-
-            if (player.speedX > 0) {
-                x = xRectBody.target.x + xRectBody.x - xRectBody.width / 2 - player.body.width
-            } else {
-                x = xRectBody.target.x + xRectBody.x + xRectBody.width / 2
-            }
-            player.speedX = 0
-            return {x,y}
-        }
-
         const xRectCells = this.getRectCells(this.map, x, y, width, height)
         const defualtBox = xRectCells.find((cell) => cell.type != '')
 
@@ -531,15 +589,6 @@ export default class World extends cc.Component {
 
         return {x,y}
     }
-
-    /**
-     * 计算目标节点的x值 (左下角)
-     * @param player
-     * @param x
-     * @param y
-     * @param width
-     * @param height
-     */
     private updateMapCollision_checkY(player: Player | null, x: number, y: number, xBefore:number , yBefore:number ) {
         const {width, height} = player.body
         y += player.speedY * frameTime
@@ -640,9 +689,8 @@ export default class World extends cc.Component {
 
         return {x,y}
     }
-
     private updateMapCollision(player: Player) {
-        
+
         player.speedY += this.gravityY * frameTime
         player.speedX += this.gravityX * frameTime
 
