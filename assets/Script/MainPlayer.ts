@@ -1,21 +1,10 @@
-import World, { Player, gridSize, Body } from './World'
-import { playAudio, playBgm, stopAudio, globalData, randomIntAtoB, pauseAudio, resumeAudio, getNodeInChildren, getNodeInCanvas, getComponentInParents } from './lib/util'
+import World, { Player, gridSize, Body, BaseSpriteMap } from './World'
+import $,{globalData} from './Public/Util'
 
 const { ccclass, property } = cc._decorator
 
 @ccclass
 export default class MainPlayer extends Player {
-    @property({ type: cc.AudioClip }) bgm: cc.AudioClip = null
-    @property({ type: cc.AudioClip }) dieAudio: cc.AudioClip = null
-    @property({ type: cc.AudioClip }) winAudio: cc.AudioClip = null
-    @property({ type: cc.AudioClip }) jumpAudio: cc.AudioClip = null
-    @property({ type: cc.AudioClip }) goldAudio: cc.AudioClip = null
-    @property({ type: cc.AudioClip }) brokeAudio: cc.AudioClip = null
-    @property({ type: cc.AudioClip }) monsterDieAudio: cc.AudioClip = null
-    @property({ type: cc.AudioClip }) levelUpAudio: cc.AudioClip = null
-    @property({ type: cc.AudioClip }) levelDownAudio: cc.AudioClip = null
-    @property({ type: cc.AudioClip }) supreManModelAudio: cc.AudioClip = null
-
     @property({
         displayName: '跳的速度',
     })
@@ -51,23 +40,21 @@ export default class MainPlayer extends Player {
         initController()
         this.initBody()
 
-        const world = getComponentInParents(this, World)
+        const world = $.getComponentInParents(this, World)
         if (world != null) {
             world.setMainPlayer(this)
         }
-
-        playBgm(this.bgm)
     }
 
     jump() {
         if (this.frameCountAnime.length > 0 || this.isDie) {
             return
         }
-
         if (this.jumpCount > 0) {
+            this.isJumping = true
+            this.jumpTimer = this.jumpTimerMax
             this.jumpCount--
             this.speedY = this.jumpSpeedY
-            playAudio(this.jumpAudio)
         }
     }
 
@@ -89,8 +76,21 @@ export default class MainPlayer extends Player {
             this.speedX = 0
         }
 
-        if (globalData.keyStatus.up && this.lastStatus.up == false) {
-            this.jump()
+        
+        if (globalData.keyStatus.up) {
+            if(this.lastStatus.up == false){
+                this.jump()
+            }
+
+            if(this.isJumping && this.jumpTimer>0){
+                this.jumpTimer-=1/60
+                this.speedY = this.jumpSpeedY
+            }
+        }
+        else{
+            if(this.jumpTimer>0){
+                this.jumpTimer = 0
+            }
         }
 
         if (this.speedY < -this.jumpSpeedY) {
@@ -107,12 +107,10 @@ export default class MainPlayer extends Player {
             if (cell.type == '砖块') {
                 if (this.y + this.body.y + this.body.height / 2 == cell.y * gridSize) {
                     this.world.clearMapAt(cell.x, cell.y)
-                    playAudio(this.brokeAudio)
                 }
             } else if (cell.type == '问号') {
                 if (this.y + this.body.y + this.body.height / 2 == cell.y * gridSize) {
                     this.world.setMapAt(cell.x, cell.y, '问号2')
-                    playAudio(this.brokeAudio)
                 }
             }
         })
@@ -120,13 +118,12 @@ export default class MainPlayer extends Player {
         // rectObjs.rectCells.some((cell) => {
         //     if (cell.type != '') {
         //         this.world.clearMapAt(cell.x, cell.y)
-        //         playAudio(this.goldAudio)
         //     }
         // })
 
         if (this.isDie == false) {
             rectObjs.rectBodys.some((decisionBox) => {
-                if (decisionBox.type == Body.types.Hurt) {
+                if (decisionBox.target.type === BaseSpriteMap.types.Hurt) {
                     this.die()
                 }
             })
@@ -149,7 +146,6 @@ export default class MainPlayer extends Player {
             case 'Monster':
                 // 踩到头上
                 if (this.speedY < 0 && this.lastPosition.y > player.y + player.body.height) {
-                    playAudio(this.monsterDieAudio)
                     this.speedY = 600
                     this.jumpCount = this.jumpCountMax - 1
                     player.die()

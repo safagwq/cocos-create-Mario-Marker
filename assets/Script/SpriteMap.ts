@@ -1,5 +1,5 @@
 import World, { Body, BaseSpriteMap } from './World'
-import { getComponentInParents } from './lib/util'
+import $ from './Public/Util'
 
 const { ccclass, property } = cc._decorator
 @ccclass
@@ -10,7 +10,7 @@ export default class SpriteMap extends BaseSpriteMap {
     }
 
     initWorld() {
-        const world = getComponentInParents(this, World)
+        const world = $.getComponentInParents(this, World)
         if (world != null) {
             world.addSpriteMap(this)
         }

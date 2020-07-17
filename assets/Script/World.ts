@@ -1,4 +1,4 @@
-import { splitByLength, removeItem, getNodeInCanvas, createLayerColor } from './lib/util'
+import $, { createLayerColor } from './Public/Util'
 
 const { ccclass, property } = cc._decorator
 
@@ -25,18 +25,6 @@ const marioMapLayerKeyMaps = (() => {
  * 判定框类
  */
 export class Body extends cc.Component {
-    static types = cc.Enum({
-        Entity: 0,
-        Hurt: 1,
-        Smart: 2,
-        Player: 3,
-    })
-
-    @property({
-        type: Body.types,
-        tooltip: '判定框类型\nEntity : 实体\nHurt : 伤害\nSmart : 智能\nPlayer : 玩家用',
-    })
-    type: number = Body.types.Entity
 
     active = true
     x = 0
@@ -74,7 +62,10 @@ export class Player extends cc.Component {
     isInAir = true
     isFlyPlayer = false
     isDie = false
+    isJumping = false
 
+    jumpTimer = 0
+    jumpTimerMax = 0.2
     jumpCount = 0
     jumpCountMax = 2
     speedX = 0
@@ -150,6 +141,32 @@ export class Props extends Player {
 }
 
 export class BaseSpriteMap extends cc.Component {
+    
+    static skewTypes = cc.Enum({
+        None: 0,
+        Left: 1,
+        Right: 2,
+    })
+    static types = cc.Enum({
+        Entity: 0,
+        Hurt: 1,
+        Smart: 2,
+        Player: 3,
+    })
+
+    @property({
+        type: BaseSpriteMap.types,
+        tooltip: '判定框类型\nEntity : 实体\nHurt : 伤害\nSmart : 智能\nPlayer : 玩家用',
+    })
+    type: number = BaseSpriteMap.types.Entity
+    
+    @property({
+        type: BaseSpriteMap.skewTypes,
+        tooltip: '斜边类型\nNone : 非斜边\nLeft : 左边低\nRight : 右边低',
+    })
+    skewType: number = BaseSpriteMap.skewTypes.None
+
+
     get x() {
         return this.node.x
     }
@@ -243,7 +260,7 @@ export default class World extends cc.Component {
 
         this.players.push(player)
 
-        if (this.mainPlayer) {
+        if(this.mainPlayer) {
             // this.mainPlayer.node.setLocalZOrder(99999)
         }
     }
@@ -253,7 +270,7 @@ export default class World extends cc.Component {
     }
 
     removePlayer(player: Player) {
-        removeItem(this.players, player)
+        $.removeItem(this.players, player)
         player.node.destroy()
         player.destroy()
     }
@@ -297,7 +314,7 @@ export default class World extends cc.Component {
     }
 
     private updateDebugLayer() {
-        let debugLayer = getNodeInCanvas('DebugLayer')
+        let debugLayer = $('DebugLayer')
         if (debugLayer == null) {
             debugLayer = new cc.Node('DebugLayer')
             this.node.addChild(debugLayer)
@@ -326,18 +343,15 @@ export default class World extends cc.Component {
 
                 debugLayer.addChild(node)
 
-                switch (body.type) {
-                    case Body.types.Entity:
+                switch (spriteMap.type) {
+                    case BaseSpriteMap.types.Entity:
                         node.color = cc.color(0, 255, 0)
                         break
-                    case Body.types.Hurt:
+                    case BaseSpriteMap.types.Hurt:
                         node.color = cc.color(255, 0, 0)
                         break
-                    case Body.types.Smart:
+                    case BaseSpriteMap.types.Smart:
                         node.color = cc.color(255, 255, 0)
-                        break
-                    case Body.types.Player:
-                        node.color = cc.color(0, 0, 255)
                         break
                 }
 
@@ -382,8 +396,62 @@ export default class World extends cc.Component {
         })
 
         players.forEach((player) => {
+            
+            
+            if(player.isInAir && player.jumpCount == player.jumpCountMax){
+                player.jumpCount = player.jumpCountMax-1
+            }
+
             player.worldUpdate()
         })
+    }
+
+
+    private getSkewMapIntersectionY(playerX:number,body:Body){
+        const spriteMap = body.target as BaseSpriteMap
+        
+        const x1 = spriteMap.x + body.x - body.width / 2
+        const y1 = spriteMap.y + body.y - body.height / 2
+        const x2 = x1 + body.width
+        const y2 = y1 + body.height
+
+        if(playerX < x1){
+            playerX = x1
+        }
+
+        if(playerX > x2){
+            playerX = x2
+        }
+
+        if(spriteMap.skewType==BaseSpriteMap.skewTypes.Left){
+            return fixedNumber(body.height * (playerX-x1)/body.width + y1)
+        }
+        else{
+            return fixedNumber(body.height * (1-(playerX-x1)/body.width) + y1)
+        }
+    }
+    private getSkewMapIntersectionX(playerY:number,body:Body){
+        const spriteMap = body.target as BaseSpriteMap
+        
+        const x1 = spriteMap.x + body.x - body.width / 2
+        const y1 = spriteMap.y + body.y - body.height / 2
+        const x2 = x1 + body.width
+        const y2 = y1 + body.height
+
+        if(playerY < y1){
+            playerY = y1
+        }
+
+        if(playerY > y2){
+            playerY = y2
+        }
+
+        if(spriteMap.skewType===BaseSpriteMap.skewTypes.Left){
+            return fixedNumber(body.width * (playerY-y1)/body.height + x1)
+        }
+        else{
+            return fixedNumber(body.width * (1-(playerY-y1)/body.height) + x1)
+        }
     }
 
     /**
@@ -394,11 +462,43 @@ export default class World extends cc.Component {
      * @param width
      * @param height
      */
-    private updateMapCollision_checkX(player: Player | null, x: number, y: number, width: number, height: number) {
+    private updateMapCollision_checkX(player: Player | null, x: number, y: number , xBefore:number , yBefore:number) {
+        const {width, height} = player.body
+
         x += player.speedX * frameTime
 
-        const { rectBodys } = this.getRectBodys(x, y, width, height)
-        const entityRectBodys = rectBodys.filter((body) => body.type == Body.types.Entity)
+        const { rectBodys } = this.getRectMaps(x, y, width, height)
+        let entityRectBodys = rectBodys.filter(World.filterEntityMap)
+        let smartRectBodys: Body[] = rectBodys.filter(World.filterSmartMap)
+        const skewSmartRectBodys = smartRectBodys.filter(World.filterSkewBody)
+        const skewEntityRectBodys = entityRectBodys.filter(World.filterSkewBody)
+        entityRectBodys = entityRectBodys.filter(World.filterNotSkewBody)
+
+        if(skewEntityRectBodys.length>0){
+
+
+            const beforeSkewMapIntersectionY = this.getSkewMapIntersectionY(xBefore+width/2,skewEntityRectBodys[0])
+            const nowSkewMapIntersectionY = this.getSkewMapIntersectionY(x+width/2,skewEntityRectBodys[0])
+            if(y+height<=beforeSkewMapIntersectionY && y+height>nowSkewMapIntersectionY){
+                x = this.getSkewMapIntersectionX(y+height,skewEntityRectBodys[0])-width/2
+                player.speedX = 0
+                return {x,y}
+            }
+
+            if( y>= beforeSkewMapIntersectionY&& y<nowSkewMapIntersectionY ){
+                y = nowSkewMapIntersectionY
+            }
+        }
+
+        if(skewSmartRectBodys.length>0){
+            const beforeSkewMapIntersectionY = this.getSkewMapIntersectionY(xBefore+width/2,skewSmartRectBodys[0])
+            const nowSkewMapIntersectionY = this.getSkewMapIntersectionY(x+width/2,skewSmartRectBodys[0])
+            
+            if( y>= beforeSkewMapIntersectionY&& y<nowSkewMapIntersectionY ){
+                y = nowSkewMapIntersectionY
+            }
+        }
+
 
         if (entityRectBodys.length > 0) {
             let xRectBody = entityRectBodys[0]
@@ -408,9 +508,8 @@ export default class World extends cc.Component {
             } else {
                 x = xRectBody.target.x + xRectBody.x + xRectBody.width / 2
             }
-
             player.speedX = 0
-            return x
+            return {x,y}
         }
 
         const xRectCells = this.getRectCells(this.map, x, y, width, height)
@@ -425,7 +524,7 @@ export default class World extends cc.Component {
             player.speedX = 0
         }
 
-        return x
+        return {x,y}
     }
 
     /**
@@ -436,33 +535,77 @@ export default class World extends cc.Component {
      * @param width
      * @param height
      */
-    private updateMapCollision_checkY(player: Player | null, x: number, y: number, width: number, height: number) {
-        const lastY = y
+    private updateMapCollision_checkY(player: Player | null, x: number, y: number, xBefore:number , yBefore:number ) {
+        const {width, height} = player.body
         y += player.speedY * frameTime
 
-        const { rectBodys } = this.getRectBodys(x, y, width, height)
-        const smartRectBodys: Body[] = rectBodys.filter((body) => body.type == Body.types.Smart)
-        const entityRectBodys = rectBodys.filter((body) => body.type == Body.types.Entity)
+        const { rectBodys } = this.getRectMaps(x, y, width, height)
+        let smartRectBodys: Body[] = rectBodys.filter(World.filterSmartMap)
+        let entityRectBodys = rectBodys.filter(World.filterEntityMap)
+        const skewSmartRectBodys = smartRectBodys.filter(World.filterSkewBody)
+        const skewEntityRectBodys = entityRectBodys.filter(World.filterSkewBody)
+        smartRectBodys = smartRectBodys.filter(World.filterNotSkewBody)
+        entityRectBodys = entityRectBodys.filter(World.filterNotSkewBody)
 
         if (entityRectBodys.length > 0) {
             let yRectBody = entityRectBodys[0]
             if (player.speedY >= 0) {
                 y = yRectBody.target.y + yRectBody.y - yRectBody.height / 2 - height
+                player.jumpTimer = 0
             } else {
                 player.isInAir = false
                 player.jumpCount = player.jumpCountMax
                 y = yRectBody.target.y + yRectBody.y + yRectBody.height / 2
             }
             player.speedY = 0
-            return y
+            return {x,y}
+        }
+        if(skewEntityRectBodys.length>0){
+
+            const beforeSkewMapIntersectionY = this.getSkewMapIntersectionY(xBefore+width/2,skewEntityRectBodys[0])
+            const nowSkewMapIntersectionY = this.getSkewMapIntersectionY(x+width/2,skewEntityRectBodys[0])
+
+            if(yBefore+height<=beforeSkewMapIntersectionY && y+height>=nowSkewMapIntersectionY){
+                y = nowSkewMapIntersectionY-height
+                player.speedY = 0
+                player.jumpTimer = 0
+                return {x,y}
+            }
+
+            if( yBefore+0.1>= beforeSkewMapIntersectionY && y<=nowSkewMapIntersectionY){
+                y = nowSkewMapIntersectionY
+                if (player.speedY < 0) {
+                    player.isInAir = false
+                    player.jumpCount = player.jumpCountMax
+                }
+                player.speedY = 0
+                return {x,y}
+            }
         }
 
+        if(skewSmartRectBodys.length>0){
+            const beforeSkewMapIntersectionY = this.getSkewMapIntersectionY(xBefore+width/2,skewSmartRectBodys[0])
+            const nowSkewMapIntersectionY = this.getSkewMapIntersectionY(x+width/2,skewSmartRectBodys[0])
+
+            if( yBefore+0.1>= beforeSkewMapIntersectionY && y<=nowSkewMapIntersectionY ){
+                
+
+                y = nowSkewMapIntersectionY
+                
+                if (player.speedY < 0) {
+                    player.isInAir = false
+                    player.jumpCount = player.jumpCountMax
+                }
+                player.speedY = 0
+                return {x,y}
+            }
+        }
         if (smartRectBodys.length > 0) {
             let sortSmartRectBodys = smartRectBodys.sort((a, b) => {
                 return b.target.y + b.y + b.height / 2 - (a.target.y + a.y + a.height / 2)
             })
             let yRectBody = sortSmartRectBodys.find((body) => {
-                return lastY >= body.target.y + body.y + body.height / 2
+                return yBefore >= body.target.y + body.y + body.height / 2
             })
 
             if (yRectBody) {
@@ -471,9 +614,8 @@ export default class World extends cc.Component {
                     player.jumpCount = player.jumpCountMax
                     y = yRectBody.target.y + yRectBody.y + yRectBody.height / 2
                 }
-
                 player.speedY = 0
-                return y
+                return {x,y}
             }
         }
 
@@ -482,6 +624,7 @@ export default class World extends cc.Component {
 
         if (defualtBox) {
             if (player.speedY >= 0) {
+                player.jumpTimer = 0
                 y = defualtBox.y * gridSize - height
             } else {
                 player.isInAir = false
@@ -491,18 +634,21 @@ export default class World extends cc.Component {
             player.speedY = 0
         }
 
-        return y
+        return {x,y}
     }
 
     private updateMapCollision(player: Player) {
+        
         player.speedY += this.gravityY * frameTime
         player.speedX += this.gravityX * frameTime
 
         var x = player.x + player.body.x - player.body.width / 2
         var y = player.y + player.body.y - player.body.height / 2
+        const xBefore = x
+        const yBefore = y
 
-        x = this.updateMapCollision_checkX(player, x, y, player.body.width, player.body.height)
-        y = this.updateMapCollision_checkY(player, x, y, player.body.width, player.body.height)
+        var {x,y} = this.updateMapCollision_checkX(player, x, y, xBefore, yBefore)
+        var {x,y} = this.updateMapCollision_checkY(player, x, y, xBefore, yBefore)
 
         player.x = x - player.body.x + player.body.width / 2
         player.y = y - player.body.y + player.body.height / 2
@@ -521,15 +667,15 @@ export default class World extends cc.Component {
         const rectCells = this.getRectCells(this.map, x1, y1, width, height)
         const contactCells = this.getContactCells(this.map, x1, y1, width, height, rectCells)
 
-        const { rectBodys, contactBodys } = this.getRectBodys(x1, y1, width, height)
+        const { rectBodys, contactBodys } = this.getRectMaps(x1, y1, width, height)
         const { contactPlayers, rectPlayers } = this.getRectPlayers(player, x1, y1, width, height)
 
         return { rectCells, contactCells, rectPlayers, contactPlayers, rectBodys, contactBodys }
     }
 
-    getRectBodys(x1: number, y1: number, width: number, height: number) {
-        const rectBodys: Body[] = []
-        const contactBodys: Body[] = []
+    getRectMaps(x1: number, y1: number, width: number, height: number) {
+        const rectMaps: Body[] = []
+        const contactMaps: Body[] = []
 
         this.spriteMaps.forEach((spriteMap) => {
             spriteMap.bodys.forEach((body) => {
@@ -541,15 +687,15 @@ export default class World extends cc.Component {
                 const rect = rectInRect(x1, y1, x1 + width, y1 + height, x3, y3, x4, y4)
                 if (rect) {
                     if (rect.inRect) {
-                        rectBodys.push(body)
+                        rectMaps.push(body)
                     } else {
-                        contactBodys.push(body)
+                        contactMaps.push(body)
                     }
                 }
             })
         })
 
-        return { rectBodys, contactBodys }
+        return { rectBodys: rectMaps, contactBodys: contactMaps }
     }
 
     getRectPlayers(player: Player, x1: number, y1: number, width: number, height: number) {
@@ -643,6 +789,19 @@ export default class World extends cc.Component {
         }
 
         return cells
+    }
+
+    private static filterEntityMap(body:Body){
+        return (body.target as BaseSpriteMap).type===BaseSpriteMap.types.Entity
+    }
+    private static filterSmartMap(body:Body){
+        return (body.target as BaseSpriteMap).type===BaseSpriteMap.types.Smart
+    }
+    private static filterSkewBody (body:Body){
+        return (body.target as BaseSpriteMap).skewType!==BaseSpriteMap.skewTypes.None
+    }
+    private static filterNotSkewBody (body:Body){
+        return (body.target as BaseSpriteMap).skewType===BaseSpriteMap.skewTypes.None
     }
 }
 
@@ -805,4 +964,10 @@ export function rectInRect(x1: number, y1: number, x2: number, y2: number, x3: n
             inRect: false,
         }
     }
+}
+
+
+
+function fixedNumber(number:number):number{
+    return Math.floor(number*1000)/1000
 }
