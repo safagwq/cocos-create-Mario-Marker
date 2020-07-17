@@ -476,7 +476,6 @@ export default class World extends cc.Component {
 
         if(skewEntityRectBodys.length>0){
 
-
             const beforeSkewMapIntersectionY = this.getSkewMapIntersectionY(xBefore+width/2,skewEntityRectBodys[0])
             const nowSkewMapIntersectionY = this.getSkewMapIntersectionY(x+width/2,skewEntityRectBodys[0])
             if(y+height<=beforeSkewMapIntersectionY && y+height>nowSkewMapIntersectionY){
@@ -485,7 +484,10 @@ export default class World extends cc.Component {
                 return {x,y}
             }
 
-            if( y>= beforeSkewMapIntersectionY&& y<nowSkewMapIntersectionY ){
+            if(roundEqual(y,beforeSkewMapIntersectionY) && y>=nowSkewMapIntersectionY){
+                y = nowSkewMapIntersectionY
+            }
+            else if( y>= beforeSkewMapIntersectionY&& y<nowSkewMapIntersectionY ){
                 y = nowSkewMapIntersectionY
             }
         }
@@ -493,8 +495,11 @@ export default class World extends cc.Component {
         if(skewSmartRectBodys.length>0){
             const beforeSkewMapIntersectionY = this.getSkewMapIntersectionY(xBefore+width/2,skewSmartRectBodys[0])
             const nowSkewMapIntersectionY = this.getSkewMapIntersectionY(x+width/2,skewSmartRectBodys[0])
-            
-            if( y>= beforeSkewMapIntersectionY&& y<nowSkewMapIntersectionY ){
+
+            if(roundEqual(y,beforeSkewMapIntersectionY) && y>=nowSkewMapIntersectionY){
+                y = nowSkewMapIntersectionY
+            }
+            else if( y>= beforeSkewMapIntersectionY&& y<nowSkewMapIntersectionY ){
                 y = nowSkewMapIntersectionY
             }
         }
@@ -588,7 +593,6 @@ export default class World extends cc.Component {
             const nowSkewMapIntersectionY = this.getSkewMapIntersectionY(x+width/2,skewSmartRectBodys[0])
 
             if( yBefore+0.1>= beforeSkewMapIntersectionY && y<=nowSkewMapIntersectionY ){
-                
 
                 y = nowSkewMapIntersectionY
                 
@@ -970,4 +974,8 @@ export function rectInRect(x1: number, y1: number, x2: number, y2: number, x3: n
 
 function fixedNumber(number:number):number{
     return Math.floor(number*1000)/1000
+}
+
+function roundEqual(a:number,b:number):boolean{
+    return Math.round(a*1000) == Math.round(b*1000)
 }
